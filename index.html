@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>RAPTOR-7</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #080808;
+            color: #39ff6e;
+            font-family: 'Share Tech Mono', monospace;
+            overflow: hidden;
+            touch-action: none;
+            width: 100dvw;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            gap: 10px;
+        }
+
+        /* ── ROTATE OVERLAY (portrait only) ── */
+        #rotate-prompt {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: #080808;
+            z-index: 999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            font-size: 11px;
+            letter-spacing: 3px;
+            color: rgba(57,255,110,0.5);
+        }
+        #rotate-prompt svg {
+            width: 48px; height: 48px;
+            fill: none;
+            stroke: rgba(57,255,110,0.5);
+            stroke-width: 2;
+            animation: rotate-hint 2s ease-in-out infinite;
+        }
+        @keyframes rotate-hint {
+            0%,100% { transform: rotate(0deg); }
+            40%      { transform: rotate(90deg); }
+            60%      { transform: rotate(90deg); }
+        }
+
+        @media (orientation: portrait) {
+            #rotate-prompt { display: flex; }
+        }
+
+        /* ── MAIN LAYOUT ── */
+        .video-feed {
+            flex: 1;
+            background: #050d07;
+            border: 1px solid rgba(57,255,110,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            letter-spacing: 3px;
+            color: #1e3a22;
+            min-height: 0;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            height: min(38vh, 160px);
+        }
+
+        .joystick-zone {
+            width:  min(38vh, 160px);
+            height: min(38vh, 160px);
+            border-radius: 50%;
+            border: 1px solid rgba(57,255,110,0.25);
+            background: radial-gradient(circle at center, rgba(57,255,110,0.04), transparent 70%);
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .btn-fire {
+            background: transparent;
+            border: 1px solid rgba(255,59,59,0.6);
+            color: #ff3b3b;
+            padding: clamp(10px, 2vh, 16px) clamp(16px, 3vw, 32px);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: clamp(12px, 2.5vw, 15px);
+            letter-spacing: 4px;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            transition: background 0.08s, box-shadow 0.08s;
+            min-width: 80px;
+            min-height: 48px;
+            width: 100%;
+            max-width: 150px;
+        }
+        .btn-fire:hover { background: rgba(255,59,59,0.08); }
+        .btn-fire.active {
+            background: #ff3b3b;
+            color: #fff;
+            box-shadow: 0 0 40px rgba(255,59,59,0.7);
+        }
+
+        .readouts {
+            font-size: clamp(8px, 1.8vw, 11px);
+            color: rgba(57,255,110,0.5);
+            text-align: center;
+            line-height: 1.8;
+        }
+        .readouts span { color: #39ff6e; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+</head>
+<body>
+
+    <!-- Shown only in portrait -->
+    <div id="rotate-prompt">
+        <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="6" width="20" height="30" rx="3"/>
+            <polyline points="36,14 42,20 36,26"/>
+            <line x1="42" y1="20" x2="28" y2="20"/>
+        </svg>
+        ROTATE DEVICE
+    </div>
+
+    <div class="video-feed">OPTICS OFFLINE — WAITING FOR ESP32</div>
+
+    <div class="controls">
+        <div id="zone_left" class="joystick-zone"></div>
+
+        <div class="center">
+            <button class="btn-fire" id="btn-fire">FIRE</button>
+            <div class="readouts">
+                DRV <span id="drv">0.00 / 0.00</span><br>
+                SRV <span id="srv">0.00 / 0.00</span>
+            </div>
+        </div>
+
+        <div id="zone_right" class="joystick-zone"></div>
+    </div>
+
+    <script>
+        // Try to lock orientation to landscape (works on Android Chrome; iOS ignores silently)
+        if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+        }
+
+        const jSize = () => Math.min(window.innerHeight * 0.3, 120);
+
+        let leftNipple, rightNipple;
+
+        function setDrive(v) {
+            v = v || { x: 0, y: 0 };
+            document.getElementById('drv').textContent = `${v.x.toFixed(2)} / ${v.y.toFixed(2)}`;
+        }
+        function setServo(v) {
+            v = v || { x: 0, y: 0 };
+            document.getElementById('srv').textContent = `${v.x.toFixed(2)} / ${v.y.toFixed(2)}`;
+        }
+
+        function initJoysticks() {
+            if (leftNipple)  leftNipple.destroy();
+            if (rightNipple) rightNipple.destroy();
+
+            const sz = jSize();
+
+            leftNipple = nipplejs.create({ zone: document.getElementById('zone_left'),  mode: 'static', position: { left: '50%', top: '50%' }, color: '#39ff6e', size: sz });
+            leftNipple.on('move', (e, d) => setDrive(d.vector)).on('end', () => setDrive(null));
+
+            rightNipple = nipplejs.create({ zone: document.getElementById('zone_right'), mode: 'static', position: { left: '50%', top: '50%' }, color: '#39ff6e', size: sz });
+            rightNipple.on('move', (e, d) => setServo(d.vector)).on('end', () => setServo(null));
+        }
+
+        initJoysticks();
+
+        // Re-init joysticks on orientation change so size + position recalculate
+        window.addEventListener('resize', initJoysticks);
+
+        // Keyboard (desktop)
+        const keys = {};
+        function simKeys() {
+            let dx=0,dy=0,sx=0,sy=0;
+            if(keys['w'])dy+=1; if(keys['s'])dy-=1; if(keys['d'])dx+=1; if(keys['a'])dx-=1;
+            if(keys['arrowup'])sy+=1; if(keys['arrowdown'])sy-=1; if(keys['arrowright'])sx+=1; if(keys['arrowleft'])sx-=1;
+            const dm=Math.sqrt(dx*dx+dy*dy); setDrive(dm?{x:dx/dm,y:dy/dm}:null);
+            const sm=Math.sqrt(sx*sx+sy*sy); setServo(sm?{x:sx/sm,y:sy/sm}:null);
+        }
+        document.addEventListener('keydown', e => { keys[e.key.toLowerCase()]=true;  if(e.key===' '&&!e.repeat){e.preventDefault();fire(true);}  else simKeys(); });
+        document.addEventListener('keyup',   e => { keys[e.key.toLowerCase()]=false; if(e.key===' ')fire(false); else simKeys(); });
+
+        // Fire
+        const btn = document.getElementById('btn-fire');
+        const fire = on => btn.classList.toggle('active', on);
+        btn.addEventListener('mousedown',  () => fire(true));
+        btn.addEventListener('mouseup',    () => fire(false));
+        btn.addEventListener('mouseleave', () => fire(false));
+        btn.addEventListener('touchstart',  e => { e.preventDefault(); fire(true);  });
+        btn.addEventListener('touchend',    e => { e.preventDefault(); fire(false); });
+        btn.addEventListener('touchcancel', e => { e.preventDefault(); fire(false); });
+    </script>
+</body>
+</html>
