@@ -5,9 +5,6 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
-// ==========================================
-// 🌐 TACTICAL HUD (V6.0 - ALL BUGS FIXED)
-// ==========================================
 const char INDEX_HTML[] PROGMEM = R"rawtext(
 <!DOCTYPE html>
 <html>
@@ -190,17 +187,13 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
 </html>
 )rawtext";
 
-// ==========================================
-// 📡 NETWORK & PIN CONFIG
-// ==========================================
-const char* ssid     = "Airtel_Null";
-const char* password = "Null@001";
+const char* ssid     = "";
+const char* password = "";
 
 const int AIN1 = 13; const int AIN2 = 14;  // Left Motor
 const int BIN1 = 15; const int BIN2 = 2;   // Right Motor
 const int PAN_PIN  = 12;
 const int TILT_PIN = 3;
-// FIX 4: GPIO3 is UART0_RX — NEVER use it as output. Changed to GPIO12.
 const int LASER_PIN = 4;
 
 Servo panServo;
@@ -208,10 +201,6 @@ Servo tiltServo;
 httpd_handle_t server_httpd = NULL;
 httpd_handle_t stream_httpd = NULL;
 
-// ==========================================
-// 🛑 MOTOR WATCHDOG — prevents ghost driving
-// FIX 5: If no drv command arrives for 600ms, stop motors automatically.
-// ==========================================
 volatile unsigned long last_drv_cmd = 0;
 #define MOTOR_TIMEOUT_MS 600
 
@@ -228,10 +217,6 @@ void motorWatchdogTask(void* pvParam) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
-
-// ==========================================
-// 🚀 COMMAND HANDLER
-// ==========================================
 static esp_err_t cmd_handler(httpd_req_t *req) {
     char buf[128];
     if (httpd_req_get_url_query_str(req, buf, sizeof(buf)) == ESP_OK) {
@@ -290,12 +275,6 @@ static esp_err_t cmd_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, "OK", 2);
 }
-
-// ==========================================
-// 📹 STREAM HANDLER
-// FIX 6: Always return frame buffer before any break/continue — prevents heap exhaustion.
-//        Added 40ms delay for ~25fps cap to reduce CPU spikes.
-// ==========================================
 static esp_err_t stream_handler(httpd_req_t *req) {
     camera_fb_t *fb = NULL;
     esp_err_t res   = ESP_OK;
@@ -338,9 +317,6 @@ static esp_err_t index_handler(httpd_req_t *req) {
     return httpd_resp_send(req, INDEX_HTML, strlen(INDEX_HTML));
 }
 
-// ==========================================
-// ⚡ SETUP
-// ==========================================
 void setup() {
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
     Serial.begin(115200);
@@ -386,13 +362,6 @@ void setup() {
         Serial.printf("Camera FAILED: 0x%x\n", cam_err);
         return;
     }
-
-    // FIX 7: Camera orientation
-    // If image is UPSIDE DOWN  → vflip=1, hmirror=0
-    // If LEFT/RIGHT SWAPPED    → vflip=0, hmirror=1
-    // If BOTH wrong (rotated 180°) → vflip=1, hmirror=1
-    // Your camera is mounted rotated 180° so BOTH should be 1.
-    // If it's STILL wrong after flashing, swap hmirror to 0.
     sensor_t *s = esp_camera_sensor_get();
     if (s) {
         s->set_vflip(s, 1);
@@ -407,7 +376,6 @@ void setup() {
     WiFi.setTxPower(WIFI_POWER_11dBm); // default is 20dBm — that's insane for close range
 
     // Server 1: HUD + Commands (Port 80)
-    // FIX 8: max_open_sockets=3 prevents queue saturation
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port      = 80;
     cfg.ctrl_port        = 32768;
@@ -440,5 +408,4 @@ void setup() {
 }
 
 void loop() {
-    // Nothing here — all work done in HTTPD tasks + watchdog task
 }
